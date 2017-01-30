@@ -5,6 +5,7 @@ define("EBASE", 2); // Ошибка связи с базой
 define("ESQL", 3); // Не корректный SQL запрос
 define("ENOTUNIQUE", 4); // Ошибка добавления в базу, если такая запись уже существует
 define("ENODEV", 22); 
+define("ECONNFAIL", 42);
 define("EPARSE", 137);
 
 

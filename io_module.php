@@ -1,5 +1,6 @@
 <?php
 require_once("nmea0183.php");
+require_once("base_sql.php");
 
 define ("CONTROL_SOCK_FILE", '/tmp/module_io.sock');
 define ("UART_DEV", '/dev/ttyUSB0');
@@ -55,8 +56,40 @@ class Io_module {
             if ($resp['msg'][0] != $port_num || $resp['msg'][1] != $state)
                 continue;
 
+            db_insert('io_output_actions', array('port' => $port_num,
+                                                'state' => $state));
             return 0;
         }
+    }
+
+    function wdt_set_state($state)
+    {
+        $msg = $this->nmea->create_msg('PC', 'WDC', array($state));
+        for (;;) {
+            fwrite($this->io_fd, $msg);
+            $resp = $this->wait_new_data(1, 'io', array('si' => 'WDS'));
+            if (!is_array($resp))
+                continue;
+
+            if ($resp['type'] != 'io')
+                continue;
+
+            if ($resp['msg']['si'] != 'SOP')
+                continue;
+
+            if ($resp['msg'][0] != $state)
+                continue;
+
+            db_insert('io_output_actions', array('port' => $port_num,
+                                                'state' => $state));
+            return 0;
+        }
+    }
+
+    function wdt_reset()
+    {
+        $msg = $this->nmea->create_msg('PC', 'WRS');
+        fwrite($this->io_fd, $msg);
     }
 
     function wait_new_data($timeout = 0, $source = null, $filter = array())

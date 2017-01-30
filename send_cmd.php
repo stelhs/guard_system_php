@@ -9,7 +9,12 @@ function print_help()
     echo "Usage: send_cmd <command> <args>\n" . 
              "\tcommands:\n" .
                  "\t\t relay: set relay output state. Args: port_num, 0/1\n" . 
-                 "\t\t\texample: send_cmd relay 4 1\n\n";
+                 "\t\t\texample: send_cmd relay 4 1\n" .
+
+                 "\t\t wdt_on: enable hardware watchdog\n"
+                 "\t\t wdt_off: disable hardware watchdog\n"
+                 "\t\t wdt_reset: reset hardware watchdog\n"
+             "\n\n";
 }
 
 
@@ -56,6 +61,18 @@ function main()
             printf("Can't set relay state\n");
         }
         $io->close();
+        return 0;
+
+    case 'wdt_on':
+        $io->wdt_set_state(1);
+        return 0;
+
+    case 'wdt_off':
+        $io->wdt_set_state(0);
+        return 0;
+
+    case 'wdt_reset':
+        $io->wdt_reset();
         return 0;
     }
 
