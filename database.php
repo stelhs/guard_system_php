@@ -1,124 +1,113 @@
 <?php
-/* Базовые функции для работы с бд */
 
-$link = NULL; // Дескриптор соединения с сервером MySql
+class Database {
+    private $link;
 
-/**
- * Открывает соединение с базой данных
- * @return EBASE - в случае ошибки 
- *         1 - вслучае успеха
- */
-function db_init($array=array())
-{
-    global $link;
-    $link = mysqli_connect($array['host'], 
-                           $array['user'], 
-                           $array['pass'], 
-                           $array['database'], 
-                           $array['port']);
-    if(!$link)
-        return EBASE;
-    else {
-    	mysqli_query($link, 'set character set utf8');
-    	mysqli_query($link, 'set names utf8');
-        return 1;
-    }
-}
-
-/**
- * Выполняет запрос
- *@param $query - запрос
- *@return 1 - если запрос успешно
- *        ESQL - если запрос не выполнен
- *        data - возвращает ассоциативный массив как результат запроса
- */
-function db_query($query)
-{
-    global $link;
-    $data = array();
-    $row = array();
-    
-    $result = mysqli_query($link, $query);
-    if($result === TRUE)
-        return 1;
-    if($result === FALSE)
-        return ESQL;
+    function connect($array=array())
+    {
         
-    while($row = mysqli_fetch_assoc($result))
-        $data[] = $row;
-    return $data;
-}
+        $this->link = mysqli_connect($array['host'], 
+                               $array['user'], 
+                               $array['pass'], 
+                               $array['database'], 
+                               $array['port']);
+        if(!$this->link) {
+            msg_log(LOG_ERR, mysqli_connect_error());
+            return -ESQL;
+        }
 
-
-/** 
- * Добавляет запись в БД
- * @param $table_name - имя таблицы для добавления
- * @param $array - массив данных для добавления
- * @return ESQL - в случае неудачи
- * @return $id - возвращает id вставленной записи
- */
-function dba_insert(key, value, handle)($table_name, $array)
-{
-    
-    global $link;
-    $query = "INSERT INTO " . $table_name . " SET ";
-    $separator = '';
-    foreach ($array as $field => $value) {
-        if($field == 'id')
-            continue;
-        $query .= $separator . '`' .  $field . '`  = "' . $value . '"';
-        $separator = ',';
+    	mysqli_query($this->link, 'set character set utf8');
+    	mysqli_query($this->link, 'set names utf8');
+        return 0;
     }
-    //dump($query);exit;
-    $result = mysqli_query($link, $query);
-    if($result === FALSE)
-        return ESQL;
-    else
-        return mysqli_insert_id($link);
-}
 
+    function query($query)
+    {
+        $data = array();
+        $row = array();
+        
+        $result = mysqli_query($this->link, $query);
+        if($result === TRUE)
+            return 0;
 
-
-/**
- * Обновляет данные в БД с указанным id
- * @param $table - имя таблицы для обновления
- * @param $id - id записи для обновления
- * @param $array - массив данных для обновления
- * @return ESQL - в случае неудачи
- *         0 - в случае удачного обновления
- */
-function db_update($table, $id, $array)
-{
-    global $link;
-    $separator = '';
-    $query = "UPDATE " . $table . " SET "; 
-    foreach($array as $field     => $value) {
-        $query .= $separator . '`' .  $field . '` = "' . $value . '"';
-        $separator = ',';
+        if($result === FALSE)
+            return -ESQL;
+            
+        return mysqli_fetch_assoc($result);
     }
-    $query .= " WHERE id = " . $id;
-    
-    $update = mysqli_query($link, $query);
-    if($update)
-       return 0;
-    else 
-       return ESQL;
-    
-}
+
+    function query_list($query)
+    {
+        $data = array();
+        $row = array();
+        
+        $result = mysqli_query($this->link, $query);
+        if($result === TRUE)
+            return 0;
+
+        if($result === FALSE)
+            return -ESQL;
+            
+        $row = mysqli_fetch_assoc($result);
+        
+        $id = 0;
+        while($row = mysqli_fetch_assoc($result)) {
+            $id++;
+            if (isset($row['id']))
+                $id = $row['id'];
+
+            $data[$id] = $row;
+        }
+
+        return $data;
+    }
 
 
-/**
- * Закрывает ранее открытое соединение с базой данных
- * @return EBASE - в случае ошибки
- * @return 1 - в случае успеха
- */
-function db_close()
-{
-    global $link;
-    if(!mysqli_close($link))
-       return EBASE;
-    else 
-        return 1;   
+    function insert($table_name, $array)
+    {
+        $query = "INSERT INTO " . $table_name . " SET ";
+        $separator = '';
+        foreach ($array as $field => $value) {
+            if($field == 'id')
+                continue;
+            $query .= $separator . '`' .  $field . '`  = "' . $value . '"';
+            $separator = ',';
+        }
+        
+        $result = mysqli_query($this->link, $query);
+        if($result === FALSE)
+            return -ESQL;
+        
+        return mysqli_insert_id($this->link);
+    }
+
+
+    function update($table, $id, $array)
+    {
+        $separator = '';
+        $query = "UPDATE " . $table . " SET "; 
+        foreach($array as $field     => $value) {
+            $query .= $separator . '`' .  $field . '` = "' . $value . '"';
+            $separator = ',';
+        }
+        $query .= " WHERE id = " . $id;
+        
+        $update = mysqli_query($this->link, $query);
+        if (!$update)
+           return -ESQL;
+        
+        return 0;
+        
+    }
+
+
+    function close()
+    {
+        if(!mysqli_close($this->link))
+           return -EBASE;
+        
+        return 0;   
+    }
 }
 
 ?>
