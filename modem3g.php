@@ -95,6 +95,9 @@ class Modem3G {
     function check_for_new_ussd()
     {
         $data = $this->get_request('/api/ussd/get');
+        if ($data < 0)
+            return $data;
+
         if (isset($data['error']['content']['code'][0]['content']))
             return $data['error']['content']['code'][0]['content'];
 
@@ -160,6 +163,86 @@ class Modem3G {
 
         return $sms_list;
     }
+
+    function get_global_status()
+    {
+        $data = $this->get_request('/api/monitoring/status');
+        if ($data < 0)
+            return $data;
+
+        if (isset($data['error']['content']['code'][0]['content']))
+            return $data['error']['content']['code'][0]['content'];
+
+        $info = [];
+        $info['connection_status'] = $data['response']['content']['ConnectionStatus'][0]['content'];
+        $info['signal_strength'] = $data['response']['content']['SignalStrength'][0]['content'];
+        $info['signal_icon'] = $data['response']['content']['SignalIcon'][0]['content'];
+        $info['cur_net_type'] = $data['response']['content']['CurrentNetworkType'][0]['content'];
+        $info['wan_ip_addr'] = $data['response']['content']['WanIPAddress'][0]['content'];
+        $info['primary_dns'] = $data['response']['content']['PrimaryDns'][0]['content'];
+        $info['secondary_dns'] = $data['response']['content']['SecondaryDns'][0]['content'];
+        return $info;
+    }
+
+    function get_traffic_statistics()
+    {
+        $data = $this->get_request('/api/monitoring/traffic-statistics');
+        if ($data < 0)
+            return $data;
+
+        if (isset($data['error']['content']['code'][0]['content']))
+            return $data['error']['content']['code'][0]['content'];
+
+        $info = [];
+        $info['curr_connect_time'] = $data['response']['content']['CurrentConnectTime'][0]['content'];
+        $info['curr_upload'] = $data['response']['content']['CurrentUpload'][0]['content'];
+        $info['curr_download'] = $data['response']['content']['CurrentDownload'][0]['content'];
+        $info['curr_download_rate'] = $data['response']['content']['CurrentDownloadRate'][0]['content'];
+        $info['curr_upload_rate'] = $data['response']['content']['CurrentUploadRate'][0]['content'];
+        $info['total_upload'] = $data['response']['content']['TotalUpload'][0]['content'];
+        $info['total_download'] = $data['response']['content']['TotalDownload'][0]['content'];
+        $info['total_connect_time'] = $data['response']['content']['TotalConnectTime'][0]['content'];
+        return $info;
+    }
+
+    function reset_traffic_statistics()
+    {
+        $query = '<ClearTraffic>1</ClearTraffic>';
+
+        $data = $this->post_request('/api/monitoring/clear-traffic', $query);
+        if ($data < 0) {
+            msg_log(LOG_ERR, 'Can\'t clear traffic statistics: can\'t connect to modem');
+            return -EPARSE;
+        }
+
+        if (isset($data['error']['content']['code'][0]['content']))
+            return $data['error']['content']['code'][0]['content'];
+
+        if (isset($data['response']['content'][0]) && $data['response']['content'][0] == 'OK')
+            return 0;
+
+        return -EPARSE;
+    }
+
+
+    function check_sended_sms_status()
+    {
+        $data = $this->get_request('/api/sms/send-status');
+        if ($data < 0)
+            return $data;
+
+        if (isset($data['error']['content']['code'][0]['content']))
+            return $data['error']['content']['code'][0]['content'];
+
+        $info = [];
+        $info['curr_phone'] = $data['response']['content']['Phone'][0]['content'];
+        $info['success_phone'] = $data['response']['content']['SucPhone'][0]['content'];
+        $info['fail_phone'] = $data['response']['content']['FailPhone'][0]['content'];
+        $info['total_cnt'] = $data['response']['content']['TotalCount'][0]['content'];
+        $info['curr_index'] = $data['response']['content']['CurIndex'][0]['content'];
+        return $info;
+    }
+
 
 }
 
