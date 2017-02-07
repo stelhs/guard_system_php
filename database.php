@@ -18,6 +18,7 @@ class Database {
 
     	mysqli_query($this->link, 'set character set utf8');
     	mysqli_query($this->link, 'set names utf8');
+    	mysqli_query($this->link, "SET AUTOCOMMIT=1");
         return 0;
     }
 
@@ -27,6 +28,7 @@ class Database {
         $row = array();
         
         $result = mysqli_query($this->link, $query);
+
         if($result === TRUE)
             return 0;
 
@@ -48,8 +50,6 @@ class Database {
         if($result === FALSE)
             return -ESQL;
             
-        $row = mysqli_fetch_assoc($result);
-        
         $id = 0;
         while($row = mysqli_fetch_assoc($result)) {
             $id++;
@@ -99,6 +99,11 @@ class Database {
         return 0;
         
     }
+    
+    function commit()
+    {
+    	mysqli_commit($this->link);
+    }
 
 
     function close()
@@ -108,6 +113,7 @@ class Database {
         
         return 0;   
     }
+
 }
 
 ?>
