@@ -3,6 +3,7 @@
 require_once("common.php");
 require_once("io_module.php");
 
+$utility_name = 'send_cmd';
 
 function print_help()
 {
@@ -11,9 +12,9 @@ function print_help()
                  "\t\t relay: set relay output state. Args: port_num, 0/1\n" . 
                  "\t\t\texample: send_cmd relay 4 1\n" .
 
-                 "\t\t wdt_on: enable hardware watchdog\n"
-                 "\t\t wdt_off: disable hardware watchdog\n"
-                 "\t\t wdt_reset: reset hardware watchdog\n"
+                 "\t\t wdt_on: enable hardware watchdog\n" .
+                 "\t\t wdt_off: disable hardware watchdog\n" .
+                 "\t\t wdt_reset: reset hardware watchdog\n" .
              "\n\n";
 }
 
@@ -22,7 +23,7 @@ function print_help()
 function main()
 {
     global $argv;
-    $io = new Io_module;
+    $io = new Io_module(null);
 
     if (!isset($argv[1])) {
         return -1;
@@ -64,11 +65,15 @@ function main()
         return 0;
 
     case 'wdt_on':
-        $io->wdt_set_state(1);
+        $rc = $io->wdt_set_state(1);
+        if ($rc)
+            printf("Can't set WDT state\n");
         return 0;
 
     case 'wdt_off':
-        $io->wdt_set_state(0);
+        $rc = $io->wdt_set_state(0);
+        if ($rc)
+            printf("Can't set WDT state\n");
         return 0;
 
     case 'wdt_reset':
