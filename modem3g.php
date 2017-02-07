@@ -3,9 +3,9 @@
 class Modem3G {
     private $ip_addr;
 
-    function __construct()
+    function __construct($ip_addr)
     {
-        $this->ip_addr = "192.168.1.1";
+        $this->ip_addr = $ip_addr;
     }
 
 
@@ -65,7 +65,7 @@ class Modem3G {
         if (isset($data['response']['content'][0]) && $data['response']['content'][0] == 'OK')
             return 0;
 
-        msg_log(LOG_ERR, "Can't send SMS " . $pnone_number . 
+        app_log(LOG_ERR, "Modem: Can't send SMS " . $pnone_number . 
                         ' text: ' . $text . ' reason code: ' . $data['error']['content']['code'][0]['content']);
         return $data['error']['content']['code'][0]['content'];
     }
@@ -86,7 +86,7 @@ class Modem3G {
         if (isset($data['response']['content'][0]) && $data['response']['content'][0] == 'OK')
             return 0;
 
-        msg_log(LOG_ERR, "Can't send USSD " . $text . 
+        app_log(LOG_ERR, "Modem: Can't send USSD " . $text . 
                     ' reason code: ' . $data['error']['content']['code'][0]['content']);
         return $data['error']['content']['code'][0]['content'];
     }
@@ -111,7 +111,7 @@ class Modem3G {
 
         $data = $this->post_request('/api/sms/delete-sms', $query);
         if ($data < 0) {
-            msg_log(LOG_ERR, 'Can\'t remove SMS: can\'t connect to modem');
+            app_log(LOG_ERR, 'Modem: Can\'t remove SMS: can\'t connect to modem');
             return -EPARSE;
         }
 
@@ -136,7 +136,7 @@ class Modem3G {
 
         $data = $this->post_request('/api/sms/sms-list', $query);
         if ($data < 0) {
-            msg_log(LOG_ERR, 'Can\'t check SMS list reason: can\'t connect to modem');
+            app_log(LOG_ERR, 'Modem: Can\'t check SMS list reason: can\'t connect to modem');
             return -EPARSE;
         }
 
@@ -211,7 +211,7 @@ class Modem3G {
 
         $data = $this->post_request('/api/monitoring/clear-traffic', $query);
         if ($data < 0) {
-            msg_log(LOG_ERR, 'Can\'t clear traffic statistics: can\'t connect to modem');
+            app_log(LOG_ERR, 'Modem: Can\'t clear traffic statistics: can\'t connect to modem');
             return -EPARSE;
         }
 
