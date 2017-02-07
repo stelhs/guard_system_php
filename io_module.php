@@ -1,17 +1,18 @@
 <?php
+require_once("config.php");
 require_once("nmea0183.php");
-require_once("base_sql.php");
+require_once("os.php");
 
-define ("CONTROL_SOCK_FILE", '/tmp/module_io.sock');
-define ("UART_DEV", '/dev/ttyUSB0');
 
 class Io_module {
     private $io_fd;
-    private $control_fd;    
     private $nmea;
     private $rx_io_messages;
+    private $db;
 
-    function __construct() {
+    function __construct($database)
+    {
+        $this->db = $database;
         $this->nmea = new Nmea0183;
         $this->rx_io_messages = array();
         $this->rx_control_messages = array();
@@ -19,71 +20,120 @@ class Io_module {
 
     function open()
     {
-        system('stty -F '.UART_DEV.' 9600 raw -echo');
-
-        $this->io_fd = fopen(UART_DEV, 'w+');
-        if($this->io_fd == false)
+        global $_CONFIG;
+        $ret = run_cmd('stty -F '. $_CONFIG['io_module']['uart_dev'] . ' ' .
+                       $_CONFIG['io_module']['uart_speed'] . ' raw -echo');
+        if ($ret['rc']) {
+            app_log(LOG_ERR, 'IO_module: Can\'t set UART parameters: ' . $ret['rc']);
             return -ENODEV;
+        }
 
-        @unlink(CONTROL_SOCK_FILE);
-        $this->control_fd = stream_socket_server('unix://'.CONTROL_SOCK_FILE);
-        if($this->control_fd == false)
+        $this->io_fd = fopen($_CONFIG['io_module']['uart_dev'], 'w+');
+        if($this->io_fd == false) {
+            app_log(LOG_ERR, 'IO_module: Can\'t open UART tty device');
             return -ENODEV;
+        }
     }
 
     function close()
     {
         fclose($this->io_fd);
-        fclose($this->control_fd);
-        @unlink(CONTROL_SOCK_FILE);
     }
 
     function relay_set_state($port_num, $state)
     {
+    	global $_CONFIG;
         $msg = $this->nmea->create_msg('PC', 'RWS', array($port_num, $state));
-        for (;;) {
+        $attempts = $_CONFIG['io_module']['repeate_count'];
+        while ($attempts) {
+            $attempts--;
             fwrite($this->io_fd, $msg);
-            $resp = $this->wait_new_data(1, 'io', array('si' => 'SOP'));
-            if (!is_array($resp))
+            $msg = $this->recv_new_msg($_CONFIG['io_module']['timeout'],
+            						   array('si' => 'SOP'));
+            if (!is_array($msg))
                 continue;
 
-            if ($resp['type'] != 'io')
+            if ($msg['si'] != 'SOP')
                 continue;
 
-            if ($resp['msg']['si'] != 'SOP')
+            if ($msg[0] != $port_num || $msg[1] != $state)
                 continue;
-
-            if ($resp['msg'][0] != $port_num || $resp['msg'][1] != $state)
-                continue;
-
-            db_insert('io_output_actions', array('port' => $port_num,
-                                                'state' => $state));
+			
+            if ($this->db) {
+            	$this->db->insert('io_output_actions', 
+            					  array('port' => $port_num,
+                                        'state' => $state));
+            	$this->db->commit();
+            }
             return 0;
         }
+        
+        throw new Exception("relay_set_state(). Can't receive responce from Module_IO");
+        return -EBUSY;
+    }
+
+    function get_input_port_state($port_num)
+    {
+    	global $_CONFIG;
+        $msg = $this->nmea->create_msg('PC', 'RIP', array($port_num));
+        $attempts = $_CONFIG['io_module']['repeate_count'];
+        while ($attempts) {
+            $attempts--;
+            fwrite($this->io_fd, $msg);
+            $msg = $this->recv_new_msg($_CONFIG['io_module']['timeout'],
+           							   array('si' => 'AIP'));
+            if (!is_array($msg))
+                continue;
+
+            if ($msg['si'] != 'AIP')
+                continue;
+
+            if ($msg[0] != $port_num)
+                continue;
+
+            if ($this->db) {
+            	$this->db->insert('io_input_actions', 
+            					  array('port' => $port_num,
+                                        'state' => $msg[1]));
+            	$this->db->commit();
+            }
+            
+            return $msg[1];
+        }
+
+        throw new Exception("relay_set_state(). Can't receive responce from Module_IO");
+        return -EBUSY;
     }
 
     function wdt_set_state($state)
     {
+    	global $_CONFIG;
         $msg = $this->nmea->create_msg('PC', 'WDC', array($state));
-        for (;;) {
+        $attempts = $_CONFIG['io_module']['repeate_count'];
+        while ($attempts) {
+            $attempts--;
             fwrite($this->io_fd, $msg);
-            $resp = $this->wait_new_data(1, 'io', array('si' => 'WDS'));
-            if (!is_array($resp))
+            $msg = $this->recv_new_msg($_CONFIG['io_module']['timeout'],
+                                       array('si' => 'WDS'));
+            if (!is_array($msg))
                 continue;
 
-            if ($resp['type'] != 'io')
+            if ($msg['si'] != 'WDS')
                 continue;
 
-            if ($resp['msg']['si'] != 'SOP')
+            if (!!$msg[0] != $state)
                 continue;
 
-            if ($resp['msg'][0] != $state)
-                continue;
-
-            db_insert('io_output_actions', array('port' => $port_num,
-                                                'state' => $state));
+            if ($this->db) {
+                $this->db->insert('io_output_actions', 
+                                  array('port' => $port_num,
+                                        'state' => $state));
+                $this->db->commit();
+            }
+            
             return 0;
         }
+        return -EBUSY;
     }
 
     function wdt_reset()
@@ -92,32 +142,22 @@ class Io_module {
         fwrite($this->io_fd, $msg);
     }
 
-    function wait_new_data($timeout = 0, $source = null, $filter = array())
+    function recv_new_msg($timeout = 0, $filter = array())
     {
-        /* attempt to search needed date into stored early list */
-        if (!$source || $source == 'io') {
-            foreach ($this->rx_io_messages as $idx => $msg) {
-                if ($msg['si'] != $filter['si'])
-                    continue;
+        /* attempt to search needed data into stored early list */
+        foreach ($this->rx_io_messages as $idx => $msg) {
+            if ($filter && ($msg['si'] != $filter['si']))
+                continue;
 
-                unset($this->rx_io_messages[$idx]);
-                return array('type' => 'io', 'msg' => $msg);
-            }
+            unset($this->rx_io_messages[$idx]);
+            return $msg;
         }
 
-        if (!$source || $source == 'control') {
-            foreach ($this->control_rx_messages as $idx => $msg) {
-                // TODO: implement filter
-                unset($this->control_rx_messages[$idx]);
-                return array('type' => 'control', 'msg' => $msg);
-            }
-        }
-
-        $rfds = array($this->control_fd, $this->io_fd);
+        $rfds = array($this->io_fd);
         $wfds = $efds = [];
 
         /* waiting new data */
-        $num_changed = stream_select($rfds, $wfds, $efds, $timeout);
+        $num_changed = stream_select($rfds, $wfds, $efds, 0, $timeout * 1000);
         if (!$num_changed)
             return null;
 
@@ -136,19 +176,13 @@ class Io_module {
                     if (!$msg)
                         continue;
 
-                    if (!$source || $source == 'io')
-                        if ($msg['si'] == $filter['si'])
-                            return array('type' => 'io', 'msg' => $msg);
+                    if (!$filter || ($msg['si'] == $filter['si']))
+                        return $msg;
                     
                     /* store unused received data into list */
                     $this->rx_io_messages[] = $msg;
                     return null;
                 }
-                break;
-
-            /* new data was detected from control_fd */
-            case $this->control_fd:
-
                 break;
             }
         }
