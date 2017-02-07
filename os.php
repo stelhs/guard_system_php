@@ -23,6 +23,14 @@ function msg_log($msg_level, $text)
     syslog($msg_level, $utility_name . ': ' . $text);
     switch ($msg_level)
     {
+        case LOG_WARNING:
+            echo $utility_name . ': Warning: ' . $text . "\n";
+            break;
+
+        case LOG_NOTICE:
+            echo $utility_name . ': ' . $text . "\n";
+            break;
+
         case LOG_ERR:
             echo $utility_name . ': Error: ' . $text . "\n";
             break;
@@ -96,7 +104,52 @@ function run_cmd($cmd, $fork = false, $stdin_data = '', $print_stdout = false)
     return array('log' => trim($log), 'rc' => $rc);
 }
 
+/**
+ * get list of children PID
+ * @param $parent_pid
+ * @return array of children PID or false
+ */
+function get_child_pids($parent_pid)
+{
+    $ret = run_cmd("ps -ax --format '%P %p'");
+    $rows = explode("\n", $ret['log']);
+    if (!$rows)
+        throw new Exception("incorrect output from command: ps -ax --format '%P %p'");
 
+    $pid_list = array();
+
+    foreach ($rows as $row)
+    {
+        preg_match('/([0-9]+)[ ]+([0-9]+)/s', $row, $matched);
+        if (!$matched)
+            continue;
+
+        $ppid = $matched[1];
+        $pid = $matched[2];
+        $pid_list[$ppid][] = $pid;
+    }
+
+    if (!isset($pid_list[$parent_pid]))
+        return false;
+
+    return $pid_list[$parent_pid];
+}
+
+
+/**
+ * Kill all proceses
+ * @param $kill_pid
+ */
+function kill_all($kill_pid)
+{
+    $child_pids = get_child_pids($kill_pid);
+    if ($child_pids)
+        foreach ($child_pids as $child_pid)
+            kill_all($child_pid);
+
+    run_cmd('kill -9 ' . $kill_pid);
+    msg_log(LOG_NOTICE, "killed PID: " . $kill_pid);
+}
 
 
 ?>
