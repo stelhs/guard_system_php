@@ -12,7 +12,9 @@ class Guard_system {
 
     private $lamp_pid;
     private $sirena_pid;
+    private $lighting_state; /* street lighting. 1 - light, 0 - dark */
 
+    
     function __construct($database, $io_module, $modem)
     {
         $this->db = $database;
@@ -22,8 +24,26 @@ class Guard_system {
         $this->sensors = $this->db->query_list("SELECT * FROM sensors");
         if (!count($this->sensors))
         	throw new Exception("No sensors found in database");
+        	
+       	actualizing_lighting_state();
+    }
+    
+    
+    function actualizing_lighting_state($new_state = -1)
+    {
+    	global $_CONFIG;
+    	$curr_state = -1;
+    	if ($new_state == -1)
+    		$curr_state = $this->lighting_state = $this->io_module->get_input_port_state(
+    								$_CONFIG['guard_settings']['light_sensor_io_port']);
+    	else
+    		$curr_state = $this->lighting_state = $new_state;
+    		
+    	if ($curr_state)
+    		$this->lamp_disable();
     }
 
+    
     function main_cycle()
     {
         for (;;) {
@@ -40,6 +60,7 @@ class Guard_system {
             sleep(1);
         }
     }
+    
 
     function parse_sms_command($text)
     {
@@ -109,24 +130,25 @@ class Guard_system {
             $this->modem->send_sms($phone, $text);
         return 0;
     }
+    
 
     /* Set new Guard system state */
     function set_state($new_state, $method, $ignore_sensors_list = array())
     {
-        $this->db->insert('guard_actions', 
+        $this->db->insert('guard_states', 
                           array('state' => $new_state,
                                 'method' => $method,
                                 'ignore_sensors' => array_to_string($ignore_sensors_list)));
-                          
         $this->db->commit();
 
         app_log(LOG_NOTICE, "Set state: '" . $new_state . "' by " . $method);
     }
+    
 
     /* Get new Guard system state */
     function get_state()
     {
-        $data = $this->db->query("SELECT * FROM guard_actions ORDER by created DESC LIMIT 1");
+        $data = $this->db->query("SELECT * FROM guard_states ORDER by created DESC LIMIT 1");
         if (!$data)
             return $data;
         
@@ -179,6 +201,7 @@ class Guard_system {
         exit(0);
     }
 
+    
     function lamp_disable()
     {
     	global $_CONFIG;
@@ -192,6 +215,7 @@ class Guard_system {
         $this->lamp_pid = 0;
     	$this->io_module->relay_set_state($_CONFIG['guard_settings']['lamp_io_port'], 0);
     }
+    
     
     function sirena_enable($sequencer = false)
     {
@@ -229,6 +253,7 @@ class Guard_system {
         }
         exit(0);
     }
+    
 
     function sirena_disable()
     {
@@ -255,6 +280,7 @@ class Guard_system {
         $this->send_sms('guard_disable');
         $this->set_state('sleep', $method);
     }
+    
 
     function guard_enable($method)
     {
@@ -285,6 +311,7 @@ class Guard_system {
         $this->send_sms('guard_enable', $ignore_sensor_list);
         $this->set_state('ready', $method, $ignore_sensor_list);
     }
+    
 
     function process_incomming_sms($sms)
     {
@@ -327,6 +354,7 @@ class Guard_system {
 		$this->db->commit();
     }
 
+    
     function process_incomming_io_msg($msg)
     {
         switch ($msg['si']) {
@@ -340,16 +368,17 @@ class Guard_system {
             
             app_log(LOG_NOTICE, "Action on Input Port " . $port . " was registred");
             $this->analisys_sensor_changes($port, $state);
-            break;
+            return;
 
         case 'SOP': /* State Output Port */
             $this->db->insert('io_output_actions', array('port' => $msg[0],
                                                          'state' => $msg[1]));
             $this->db->commit();
-            break;
+            return;
         }
     }
 
+    
     function get_sensor_locking_mode($sensor_id)
     {
         $data = $this->db->query("SELECT * FROM blocking_sensors " .
@@ -358,6 +387,7 @@ class Guard_system {
         return $data ? $data['mode'] : 'unlock';
     }
 
+    
     function get_sensor_by_io_port($port)
     {
         if (!count($this->sensors))
@@ -371,13 +401,19 @@ class Guard_system {
         return false;
     }
 
+    
     function analisys_sensor_changes($port, $state)
     {
+    	global $_CONFIG;
+    	
+		if ($port == $_CONFIG['guard_settings']['light_sensor_io_port']) {
+			$this->actualizing_lighting_state($state);
+			return;       			
+       	}
+    	
         $sensor = $this->get_sensor_by_io_port($port);
         if (!$sensor)
             return;
-
-        printf("curr_state = %s\n", $state);
 
         $sensor_state = ($state == $sensor['normal_state'] ? 'normal' : 'action');
         $guard_state = $this->get_state();
@@ -385,7 +421,6 @@ class Guard_system {
                                        array('sense_id' => $sensor['id'],
                                              'state' => $sensor_state,
                                              'guard_state' => $guard_state['state']));
-
         $this->db->commit();
                                        
         $sense_locking_mode = $this->get_sensor_locking_mode($sensor['id']);
@@ -397,29 +432,44 @@ class Guard_system {
        			if ($ignore_sensor_id == $sensor['id'])
        				return;
 
-        printf("change_sensor, guard_state = %s, sensor_state = %s\n", 
-                                    $guard_state['state'], $sensor_state);
-                                    
-        if ($guard_state['state'] == 'ready' && $sensor_state == 'action')
-            $this->do_alarm($action_id, $sensor['id']);
+        app_log(LOG_NOTICE, "change_sensor, guard_state = " . $guard_state['state'] . 
+        					", sensor_state = " . $sensor_state . "\n");
+
+        switch ($guard_state['state']) {
+        case 'ready':
+        	if ($sensor_state == 'action')
+            	$this->do_alarm($action_id, $sensor['id']);
+            break;
+            
+        case 'sleep':
+        	if ($this->lighting_state == 0)
+				$this->lamp_enable($_CONFIG['guard_settings']['light_sleep_timeout'] * 1000);
+        }
     }
 
-    /*
-        Enable alarm
-    */
     function do_alarm($action_id, $sensor_id)
     {
         global $_CONFIG;
+        
         printf("do_alarm %d\n", $action_id);
         $this->save_camera_images($action_id);
-        $this->sirena_enable(array(array('state' => 1, 'interval' => $_CONFIG['guard_settings']['sirena_timeout']),
+        $this->sirena_enable(array(array('state' => 1, 'interval' => $_CONFIG['guard_settings']['sirena_timeout'] * 1000),
                                    array('state' => 0, 'interval' => 0),
                                    ));
-
-        $this->send_sms('guard_alarm', array('sensor_name' => $this->sensors[$sensor_id]['name'],
-                                             'action_id' => $action_id));
+        
+        if ($this->lighting_state == 0)
+			$this->lamp_enable($_CONFIG['guard_settings']['light_ready_timeout'] * 1000);
+			
+        $this->db->insert('guard_alarms', 
+                          array('action_id' => $$action_id));
+        $this->db->commit();
+                                   
+        $this->send_sms('guard_alarm', 
+        				array('sensor_name' => $this->sensors[$sensor_id]['name'],
+                              'action_id' => $action_id));
     }
 
+    
     function save_camera_images($action_id)
     {
         global $_CONFIG;
