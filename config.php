@@ -27,5 +27,9 @@ $_CONFIG['list_access_phones'] = array('+375295051024', /*'+375295365072'*/);
 
 $_CONFIG['guard_settings'] = array('sirena_io_port' => 3,
 								   'lamp_io_port' => 4,
-                                   'sirena_timeout' => 30000);
+                                   'sirena_timeout' => 30, /* in seconds */
+								   'light_sensor_io_port' => 6,
+								   'light_ready_timeout' => 60, /* in seconds */
+								   'light_sleep_timeout' => 30 * 60, /* in seconds */
+									);
 
